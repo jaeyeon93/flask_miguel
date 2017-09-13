@@ -1,5 +1,4 @@
 #! /usr/bin/env python
-
 import os
 from flask import app
 from app import create_app, db
