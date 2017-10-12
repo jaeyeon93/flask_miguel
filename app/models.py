@@ -8,6 +8,8 @@ from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from flask import current_app, request
 from datetime import datetime
 import hashlib
+from markdown import markdown
+import bleach
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -20,10 +22,47 @@ class Permission:
     MODERATE_COMMENTS = 0x08
     ADMINISTER = 0x80
 
+class Post(db.Model):
+    __tablename__ = 'posts'
+    id = db.Column(db.Integer, primary_key=True)
+    body = db.Column(db.Text)
+    body_html = db.Column(db.Text)
+    timestamp = db.Column(db.DateTime, index=True, default=datetime.utcnow)
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+
+    # generate fake post
+    @staticmethod
+    def generate_fake(count=100):
+        from random import seed, randint
+        import forgery_py
+
+        seed()
+        user_count = User.query.count()
+        for i in range(count):
+            u = User.query.offset(randint(0, user_count - 1)).first()
+            p = Post(body=forgery_py.lorem_ipsum.sentences(randint(1, 5)),
+                     timestamp=forgery_py.date.date(True),
+                     author=u)
+            db.session.add(p)
+            db.session.commit()
+
+    # post model markdown-text handling
+    @staticmethod
+    def on_changed_body(target, value, oldvalue, initiator):
+        allowed_tags = ['a', 'abbr', 'acronym', 'b', 'blockquote', 'code',
+                        'em', 'i', 'li', 'ol', 'pre', 'strong', 'ul',
+                        'h1', 'h2', 'h3', 'p']
+        target.body_html = bleach.linkify(bleach.clean(
+            markdown(value, output_format='html'),
+            tags=allowed_tags, strip=True))
+
+db.event.listen(Post.body, 'set', Post.on_changed_body)
+
+
 class Role(db.Model):
     __tablename__ = 'roles'
     __table_args__ = {'extend_existing': True}
-    id = db.Column(db.INTEGER, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(64), unique=True, index=True)
     default = db.Column(db.Boolean, default=False, index=True)
     permissions = db.Column(db.Integer)
@@ -57,7 +96,7 @@ class Role(db.Model):
 class User(UserMixin,db.Model):
     __tablename__ = 'users'
     __table_args__ = {'extend_existing': True}
-    id = db.Column(db.INTEGER,primary_key=True)
+    id = db.Column(db.Integer,primary_key=True)
     email = db.Column(db.String(64), unique=True, index=True)
     username = db.Column(db.String(64),unique=True,index=True)
     password_hash = db.Column(db.String(128))
@@ -67,6 +106,7 @@ class User(UserMixin,db.Model):
     about_me = db.Column(db.Text())
     member_since = db.Column(db.DateTime(), default=datetime.utcnow)
     last_seen = db.Column(db.DateTime(), default=datetime.utcnow)
+    posts = db.relationship('Post', backref='author', lazy='dynamic')
 
     # Ping
     def ping(self):
@@ -159,6 +199,30 @@ class User(UserMixin,db.Model):
             url=url, hash=hash, size=size, default=default, rating=rating)
 
     avatar_hash = db.Column(db.String(32))
+
+    # generate fake
+    @staticmethod
+    def generate_fake(count=100):
+        from sqlalchemy.exc import IntegrityError
+        from random import seed
+        import forgery_py
+
+        seed()
+
+        for i in range(count):
+            u = User(email=forgery_py.internet.email_address(),
+                     username=forgery_py.internet.user_name(True),
+                     password=forgery_py.lorem_ipsum.word(),
+                     confirmed=True,
+                     name=forgery_py.name.full_name(),
+                     location=forgery_py.address.city(),
+                     about_me=forgery_py.lorem_ipsum.sentence(),
+                     member_since=forgery_py.date.date(True))
+            db.session.add(u)
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
 
 
     def __repr__(self):
