@@ -30,7 +30,7 @@ Mako==1.0.7
 Manager==2.0.5
 MarkupSafe==1.0
 py2app==0.7.3
-Pygments==2.2.0
+Pygments==2.7.4
 pyOpenSSL==0.13.1
 python-dateutil==1.5
 python-editor==1.0.3
